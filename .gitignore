@@ -1,9 +1,11 @@
 __pycache__/
 *.pyc
-*.pyo
 .venv/
+
+# Input books
+*.epub
+
+# Scan outputs
 *.db
 *.json
 *.html
-*.epub
-.env
