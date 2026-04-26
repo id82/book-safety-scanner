@@ -1,0 +1,19 @@
+[project]
+name = "book-safety-scanner"
+version = "0.1.0"
+description = "Identify passages not suitable for young children in books"
+requires-python = ">=3.11"
+dependencies = [
+    "ebooklib>=0.18",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+    "typer>=0.12",
+    "rich>=13.0",
+]
+
+[project.scripts]
+book-safety = "book_safety_scanner.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
