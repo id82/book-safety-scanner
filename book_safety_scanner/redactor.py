@@ -39,9 +39,19 @@ Rules:
 emotional shifts, outcomes
 - Match the style and tone of the surrounding text
 - Do NOT reference, hint at, or allude to the removed content in any way
+- Do NOT reproduce, paraphrase, or echo any wording from the passage description you are given
 - Do NOT use meta-language like "[scene omitted]" or "later that evening"
 - Output only the bridge sentence(s), nothing else\
 """
+
+
+def _strip_quotes(text: str) -> str:
+    """Remove any quoted substrings so exact wording cannot leak into the bridge."""
+    import re
+    # Remove content inside single or double typographic/straight quotes
+    text = re.sub(r"['‘’][^'‘’]{0,300}['‘’]", "", text)
+    text = re.sub(r'"[^"]{0,300}"', "", text)
+    return re.sub(r"\s{2,}", " ", text).strip()
 
 
 def generate_bridge(
@@ -54,7 +64,7 @@ def generate_bridge(
     after_block = "\n".join(f"  {t}" for t in after_texts[:2])
 
     prompt = (
-        f"Removed passage contained: {summary}\n\n"
+        f"Removed passage contained: {_strip_quotes(summary)}\n\n"
         f"Text immediately before the removed passage:\n{before_block}\n\n"
         f"Text immediately after the removed passage:\n{after_block}\n\n"
         "Write a seamless 1-2 sentence bridge."
