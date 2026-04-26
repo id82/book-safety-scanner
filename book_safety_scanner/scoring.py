@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from .ingestion import BookMeta, Paragraph
 from .pipeline import ParagraphAnalysis
-from .taxonomy import AGE_BANDS, CATEGORIES, CATEGORY_LABELS
+from .taxonomy import CATEGORIES, CATEGORY_LABELS, get_threshold
 
 
 @dataclass
@@ -111,13 +111,17 @@ def merge_skip_regions(
     gap_fill: int = 3,
 ) -> list[SkipRegion]:
     """Merge adjacent flagged paragraphs into contiguous skip blocks."""
-    threshold = AGE_BANDS[age_band]
+    def _is_flagged(analysis: ParagraphAnalysis) -> bool:
+        for cat, cs in analysis.llm_scores.items():
+            if float(cs.score) > get_threshold(age_band, cat):
+                return True
+        return False
 
-    # Collect (global_id, score) for paragraphs above threshold
+    # Collect paragraph IDs where any category score exceeds its threshold
     flagged: set[int] = {
         para.id
         for para in paragraphs
-        if para.id in analyses and compute_paragraph_score(analyses[para.id]) > threshold
+        if para.id in analyses and _is_flagged(analyses[para.id])
     }
 
     if not flagged:

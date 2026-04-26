@@ -14,13 +14,19 @@ CATEGORY_LABELS = {
     "themes": "Distressing Themes",
 }
 
-# Age band -> max paragraph score that is acceptable (inclusive)
-AGE_BANDS: dict[str, float] = {
-    "under_7": 1.0,
-    "7_10": 2.0,
-    "10_12": 2.5,
-    "12_plus": 5.0,
+# Age band -> per-category max score that is acceptable (inclusive).
+# "default" applies to any category not explicitly listed.
+AGE_BANDS: dict[str, dict[str, float]] = {
+    "under_7": {"default": 1.0},
+    "7_10": {"default": 2.0},
+    "10_12": {"default": 2.5, "sexual_content": 1.5},
+    "12_plus": {"default": 5.0},
 }
+
+
+def get_threshold(age_band: str, category: str) -> float:
+    band = AGE_BANDS[age_band]
+    return band.get(category, band["default"])
 
 # Keyword lists per category (word-boundary matched, case-insensitive)
 _RAW_KEYWORDS: dict[str, list[str]] = {
