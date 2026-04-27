@@ -1,8 +1,10 @@
 """Three-pass content detection pipeline."""
 
 import json
+import random
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -96,13 +98,20 @@ class ParagraphAnalysis:
 
 # ── Claude CLI subprocess helper ─────────────────────────────────────────────
 
+_RATE_LIMIT_SIGNALS = ("rate limit", "429", "too many requests", "overloaded")
+_MAX_RETRIES = 4
+
+
 def _run_claude(
     prompt: str,
     json_schema: dict,
     model: str = "haiku",
     timeout: int = 60,
 ) -> dict | None:
-    """Call `claude -p -` and return structured_output dict, or None on failure."""
+    """Call `claude -p -` and return structured_output dict, or None on failure.
+
+    Retries up to _MAX_RETRIES times with exponential backoff on rate-limit errors.
+    """
     cmd = [
         "claude", "-p", "-",
         "--model", model,
@@ -114,27 +123,35 @@ def _run_claude(
         "--permission-mode", "bypassPermissions",
     ]
 
-    try:
-        result = subprocess.run(
-            cmd,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-    except subprocess.TimeoutExpired:
-        return None
-
-    for line in reversed(result.stdout.splitlines()):
-        line = line.strip()
-        if not line:
-            continue
+    for attempt in range(_MAX_RETRIES):
         try:
-            msg = json.loads(line)
-            if msg.get("type") == "result":
-                return msg.get("structured_output")
-        except json.JSONDecodeError:
+            result = subprocess.run(
+                cmd,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return None
+
+        if any(sig in result.stderr.lower() for sig in _RATE_LIMIT_SIGNALS):
+            backoff = (2 ** attempt) + random.uniform(0, 1)
+            time.sleep(backoff)
             continue
+
+        for line in reversed(result.stdout.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+                if msg.get("type") == "result":
+                    return msg.get("structured_output")
+            except json.JSONDecodeError:
+                continue
+
+        return None
 
     return None
 
@@ -172,24 +189,32 @@ def run_pass2(
     candidate_ids: set[int],
     db: ScanDatabase,
     progress_cb: Callable[[int, int], None] | None = None,
-    request_delay: float = 0.3,
+    workers: int = 8,
 ) -> dict[int, dict]:
     """Run LLM analysis on candidate paragraphs. Returns {para_id: llm_result}."""
     already_done = db.get_analyzed_ids()
     todo = [p for p in paragraphs if p.id in candidate_ids and p.id not in already_done]
 
-    for done_count, para in enumerate(todo):
+    if not todo:
+        return db.load_llm_results()
+
+    def _analyse(para: Paragraph) -> tuple[int, dict | None]:
         context_text = build_context_window(paragraphs, para.id, window=2)
-        result = _run_claude(
+        return para.id, _run_claude(
             prompt=f"Analyse this passage:\n\n{context_text}",
             json_schema=CLASSIFY_SCHEMA,
         )
-        if result:
-            db.insert_llm_result(para.id, result)
-        if request_delay > 0:
-            time.sleep(request_delay)
-        if progress_cb:
-            progress_cb(done_count + 1, len(todo))
+
+    done_count = 0
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(_analyse, para): para for para in todo}
+        for future in as_completed(futures):
+            para_id, result = future.result()
+            if result:
+                db.insert_llm_result(para_id, result)
+            done_count += 1
+            if progress_cb:
+                progress_cb(done_count, len(todo))
 
     return db.load_llm_results()
 

@@ -63,10 +63,10 @@ def scan(
         Path | None,
         typer.Option("--db", help="SQLite cache path (default: output/<stem>/cache.db)"),
     ] = None,
-    request_delay: Annotated[
-        float,
-        typer.Option("--delay", help="Seconds to wait between LLM requests"),
-    ] = 0.3,
+    workers: Annotated[
+        int,
+        typer.Option("--workers", help="Parallel LLM workers for Pass 2"),
+    ] = 8,
 ):
     """Scan an EPUB for child-inappropriate content."""
 
@@ -137,7 +137,7 @@ def scan(
                 llm_results = run_pass2(
                     paragraphs, candidate_ids, db,
                     lambda d, t: progress.update(task, completed=d),
-                    request_delay,
+                    workers=workers,
                 )
 
         flagged_count = sum(
